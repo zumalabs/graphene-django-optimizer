@@ -5,9 +5,11 @@ from django.db.models import ForeignKey, Prefetch
 from django.db.models.constants import LOOKUP_SEP
 from django.db.models.fields.reverse_related import ManyToOneRel
 from graphene import InputObjectType
+from graphene.types.definitions import GrapheneObjectType
 from graphene.types.generic import GenericScalar
 from graphene.types.resolver import default_resolver
 from graphene_django import DjangoObjectType
+from graphene_django.registry import get_global_registry
 from graphql import ResolveInfo
 from graphql.execution.base import (
     get_field_def,
@@ -178,35 +180,44 @@ class QueryOptimizer(object):
         name = self._get_name_from_resolver(field_def.resolver)
         if not name:
             return False
+
+        # "split" here for deep model_field resolver hint
+        split_model_field = name.split(LOOKUP_SEP, 1)
+        name = split_model_field[0]
+
         model_field = self._get_model_field_from_name(model, name)
         if not model_field:
             return False
-        if self._is_foreign_key_id(model_field, name):
+
+        if self._is_foreign_key_id(model_field, name) or not model_field.is_relation:
             store.only(name)
             return True
-        if model_field.many_to_one or model_field.one_to_one:
-            field_store = self._optimize_gql_selections(
-                self._get_type(field_def),
-                selection,
-                # parent_type,
+
+        field_type = self._get_type(field_def)
+        if len(split_model_field) > 1:
+            field_name_next = split_model_field[1]
+            model_next = model_field.related_model
+            model_next_type = get_global_registry().get_type_for_model(model_next)
+            field_type = GrapheneObjectType(
+                graphene_type=model_next_type,
+                name=field_name_next,
+                fields=field_type._fields
             )
+
+        field_store = self._optimize_gql_selections(
+            field_type,
+            selection
+        )
+
+        if model_field.many_to_one or model_field.one_to_one:
             store.select_related(name, field_store)
             return True
         if model_field.one_to_many or model_field.many_to_many:
-            field_store = self._optimize_gql_selections(
-                self._get_type(field_def),
-                selection,
-                # parent_type,
-            )
-
             if isinstance(model_field, ManyToOneRel):
                 field_store.only(model_field.field.name)
 
             related_queryset = model_field.related_model.objects.all()
             store.prefetch_related(name, field_store, related_queryset)
-            return True
-        if not model_field.is_relation:
-            store.only(name)
             return True
         return False
 
