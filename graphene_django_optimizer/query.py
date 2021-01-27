@@ -195,15 +195,44 @@ class QueryOptimizer(object):
 
         field_type = self._get_type(field_def)
         if len(split_model_field) > 1:
-            field_name_next = split_model_field[1]
             model_next = model_field.related_model
             model_next_type = get_global_registry().get_type_for_model(model_next)
+            # field_def.resolver.optimization_hints.model_field = lambda *args, **kwargs: split_model_field[1]
+            field_name_next = split_model_field[1]
             field_type = GrapheneObjectType(
                 graphene_type=model_next_type,
-                name=field_name_next,
+                name=model_next_type._meta.name,
+                # TODO make fields with annotated resolvers
+                # e.g. if this was called with (store, Trade, market{name}, {MarketType})
+                # with model_field hint "bid__product__market", make fields
+                # {
+                #   'product__market': annoted resolver function
+                # }
+
+                # fields = {
+                #     field_name_next: lambda *args, **kwargs
+                # }
                 fields=field_type._fields
             )
+            # field_name_next = split_model_field[1]
+            # setattr(field_type.graphene_type, getattr(
+            #     field_type.graphene_type,
+            #     f'resolve_{field_name_next}',
+            #     lambda *args, **kwargs: None
+            # )
+            # )
+            # TODO attach a resolver hint
+            # field_type.resolver.model_field=split_model_field[1]
+            # setattr(field_type, 'resolver', resolver)
 
+        # TODO
+        # MAYBE SKIP ALL THIS STUFF AND JUST INTERPRET A DEEP
+        # model_field= AS MEANING YOU NEED TO FILL IN THE SELECTION
+        # IE SELECT EACH FIELD IN BETWEEN?
+
+        # Anyway, the selection needs updating even in the recursive
+        # case.  In that case we could do our setting resolve_* to
+        # annotated lambda or updating existing resolver
         field_store = self._optimize_gql_selections(
             field_type,
             selection
