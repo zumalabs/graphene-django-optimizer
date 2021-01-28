@@ -207,21 +207,21 @@ class QueryOptimizer(object):
 
         field_type = self._get_type(field_def)
         selection_next = selection
+
+        # if we're dealing with a deep model_field resolver hint,
+        # get the type of the first link in the chain
         if len(split_model_field) > 1:
             model_next = model_field.related_model
             model_next_type = get_global_registry().get_type_for_model(model_next)
-            # field_name_next = split_model_field[1]
             field_type = GrapheneObjectType(
                 graphene_type=model_next_type,
                 name=model_next_type._meta.name,
                 fields=field_type._fields
             )
-            
-            # selection_next = ast.Field(
-            #     name=ast.Name(value=field_name_next),
-            #     selection_set=ast.SelectionSet(selections=[selection])
-            # )
 
+            # we're optimizing a deep model_field resolver hint,
+            # so introduce synthetic parents in the ast to prompt
+            # the optimizer
             selection_next = self._insert_selection_set_parent_nodes_from_deep_field_name(selection, full_name)
 
         field_store = self._optimize_gql_selections(
