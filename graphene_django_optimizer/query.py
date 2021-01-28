@@ -11,6 +11,7 @@ from graphene.types.resolver import default_resolver
 from graphene_django import DjangoObjectType
 from graphene_django.registry import get_global_registry
 from graphql import ResolveInfo
+from graphql.language import ast
 from graphql.execution.base import (
     get_field_def,
 )
@@ -116,7 +117,6 @@ class QueryOptimizer(object):
         store = QueryOptimizerStore(
             disable_abort_only=self.disable_abort_only,
         )
-
         selection_set = field_ast.selection_set
         if not selection_set:
             return store
@@ -194,6 +194,7 @@ class QueryOptimizer(object):
             return True
 
         field_type = self._get_type(field_def)
+        selection_next = selection
         if len(split_model_field) > 1:
             model_next = model_field.related_model
             model_next_type = get_global_registry().get_type_for_model(model_next)
@@ -214,6 +215,13 @@ class QueryOptimizer(object):
                 # }
                 fields=field_type._fields
             )
+            
+            # TODO
+            selection_next = ast.Field(
+                name=ast.Name(value=field_name_next),
+                selection_set=ast.SelectionSet(selections=[selection])
+            )
+
             # field_name_next = split_model_field[1]
             # setattr(field_type.graphene_type, getattr(
             #     field_type.graphene_type,
@@ -235,7 +243,7 @@ class QueryOptimizer(object):
         # annotated lambda or updating existing resolver
         field_store = self._optimize_gql_selections(
             field_type,
-            selection
+            selection_next
         )
 
         if model_field.many_to_one or model_field.one_to_one:
