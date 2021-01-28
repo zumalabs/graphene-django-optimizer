@@ -176,6 +176,18 @@ class QueryOptimizer(object):
         if not optimized:
             store.abort_only_optimization()
 
+    def _insert_selection_set_parent_nodes_from_deep_field_name(self, selection, deep_field_name):
+        split_field_name = deep_field_name.split(LOOKUP_SEP, 1)
+        if len(split_field_name) == 1:
+            return selection
+        return self._insert_selection_set_parent_nodes_from_deep_field_name(
+            ast.Field(
+                name=ast.Name(value=split_field_name[0]),
+                selection_set=ast.SelectionSet(selections=[selection])
+            ),
+            split_field_name[1]
+        )
+
     def _optimize_field_by_name(self, store, model, selection, field_def):
         name = self._get_name_from_resolver(field_def.resolver)
         if not name:
@@ -198,17 +210,19 @@ class QueryOptimizer(object):
         if len(split_model_field) > 1:
             model_next = model_field.related_model
             model_next_type = get_global_registry().get_type_for_model(model_next)
-            field_name_next = split_model_field[1]
+            # field_name_next = split_model_field[1]
             field_type = GrapheneObjectType(
                 graphene_type=model_next_type,
-                name=model_next_type._meta.name,
+                name=name,
                 fields=field_type._fields
             )
             
-            selection_next = ast.Field(
-                name=ast.Name(value=field_name_next),
-                selection_set=ast.SelectionSet(selections=[selection])
-            )
+            # selection_next = ast.Field(
+            #     name=ast.Name(value=field_name_next),
+            #     selection_set=ast.SelectionSet(selections=[selection])
+            # )
+
+            selection_next = self._insert_selection_set_parent_nodes_from_deep_field_name(selection, split_model_field[1])
 
         field_store = self._optimize_gql_selections(
             field_type,
