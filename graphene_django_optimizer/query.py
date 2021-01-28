@@ -8,6 +8,7 @@ from graphene import InputObjectType
 from graphene.types.definitions import GrapheneObjectType
 from graphene.types.generic import GenericScalar
 from graphene.types.resolver import default_resolver
+from graphene.utils.str_converters import to_camel_case
 from graphene_django import DjangoObjectType
 from graphene_django.registry import get_global_registry
 from graphql import ResolveInfo
@@ -178,10 +179,14 @@ class QueryOptimizer(object):
 
     def _insert_selection_set_parent_nodes_from_deep_field_name(self, selection, deep_field_name):
         split_field_name = deep_field_name.split(LOOKUP_SEP, 1)
+        name = to_camel_case(split_field_name[0])
         if len(split_field_name) == 1:
-            return selection
+            return ast.Field(
+                name=ast.Name(value=name),
+                selection_set=ast.SelectionSet(selections=selection.selection_set.selections)
+            )
         return ast.Field(
-            name=ast.Name(value=split_field_name[0]),
+            name=ast.Name(value=name),
             selection_set=ast.SelectionSet(selections=[
                 self._insert_selection_set_parent_nodes_from_deep_field_name(selection, split_field_name[1])
             ])
