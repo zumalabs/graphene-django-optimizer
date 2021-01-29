@@ -198,8 +198,8 @@ class QueryOptimizer(object):
             return False
 
         full_name = name
-        # "split" here for deep model_field resolver hint
-        split_model_field = full_name.split(LOOKUP_SEP, 1)
+        # "split" here for deep model_field resolver hint if it's not partial
+        split_model_field = callable(name) and [name] or full_name.split(LOOKUP_SEP, 1)
         name = split_model_field[0]
 
         model_field = self._get_model_field_from_name(model, name)
