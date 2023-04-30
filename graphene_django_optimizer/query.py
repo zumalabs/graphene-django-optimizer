@@ -5,23 +5,20 @@ from django.db.models import ForeignKey, Prefetch
 from django.db.models.constants import LOOKUP_SEP
 from django.db.models.fields.reverse_related import ManyToOneRel
 from graphene import InputObjectType
+from graphene.types.definitions import GrapheneObjectType
 from graphene.types.generic import GenericScalar
 from graphene.types.resolver import default_resolver
+from graphene.utils.str_converters import to_camel_case
 from graphene_django import DjangoObjectType
+from graphene_django.registry import get_global_registry
 from graphql import GraphQLResolveInfo, GraphQLSchema
-from graphql.language.ast import (
-    FragmentSpreadNode,
-    InlineFragmentNode,
-    VariableNode,
-)
-from graphql.type.definition import (
-    GraphQLInterfaceType,
-    GraphQLUnionType,
-)
-
+from graphql.language.ast import (FieldNode, FragmentSpreadNode,
+                                  InlineFragmentNode, NameNode,
+                                  SelectionSetNode, VariableNode)
 from graphql.pyutils import Path
+from graphql.type.definition import GraphQLInterfaceType, GraphQLUnionType
 
-from .utils import is_iterable, get_field_def_compat
+from .utils import get_field_def_compat, is_iterable
 
 
 def query(queryset, info, **options):
@@ -158,7 +155,8 @@ class QueryOptimizer(object):
                             )
                             store.append(relay_store)
                             try:
-                                from django.db.models import DEFERRED  # noqa: F401
+                                from django.db.models import \
+                                    DEFERRED  # noqa: F401
                             except ImportError:
                                 store.abort_only_optimization()
                         else:
@@ -186,39 +184,81 @@ class QueryOptimizer(object):
         if not optimized:
             store.abort_only_optimization()
 
+    def _insert_selection_set_parent_nodes_from_deep_field_name(
+        self, selection, deep_field_name
+    ):
+        split_field_name = deep_field_name.split(LOOKUP_SEP, 1)
+        name = to_camel_case(split_field_name[0])
+        if len(split_field_name) == 1:
+            return FieldNode(
+                name=NameNode(value=name),
+                selection_set=SelectionSetNode(
+                    selections=selection.selection_set.selections
+                ),
+            )
+        return FieldNode(
+            name=NameNode(value=name),
+            selection_set=SelectionSetNode(
+                selections=[
+                    self._insert_selection_set_parent_nodes_from_deep_field_name(
+                        selection, split_field_name[1]
+                    )
+                ]
+            ),
+        )
+
     def _optimize_field_by_name(self, store, model, selection, field_def):
         name = self._get_name_from_resolver(field_def.resolve)
         if not name:
             return False
+
+        full_name = name
+        # "split" here for deep model_field resolver hint if it's not partial
+        split_model_field = callable(name) and [name] or full_name.split(LOOKUP_SEP, 1)
+        name = split_model_field[0]
+
         model_field = self._get_model_field_from_name(model, name)
         if not model_field:
             return False
-        if self._is_foreign_key_id(model_field, name):
+
+        if self._is_foreign_key_id(model_field, name) or not model_field.is_relation:
             store.only(name)
             return True
-        if model_field.many_to_one or model_field.one_to_one:
-            field_store = self._optimize_gql_selections(
-                self._get_type(field_def),
-                selection,
-                # parent_type,
+
+        field_type = self._get_type(field_def)
+        selection_next = selection
+
+        # if we're dealing with a deep model_field resolver hint,
+        # get the type of the first link in the chain
+        if len(split_model_field) > 1:
+            model_next = model_field.related_model
+            model_next_type = get_global_registry().get_type_for_model(model_next)
+            field_type = GrapheneObjectType(
+                graphene_type=model_next_type,
+                name=model_next_type._meta.name,
+                fields=field_type._fields,
             )
+
+            # we're optimizing a deep model_field resolver hint,
+            # so introduce synthetic parents in the ast to prompt
+            # the optimizer
+            selection_next = (
+                self._insert_selection_set_parent_nodes_from_deep_field_name(
+                    selection, full_name
+                )
+            )
+
+        field_store = self._optimize_gql_selections(field_type, selection_next)
+
+        if model_field.many_to_one or model_field.one_to_one:
             store.select_related(name, field_store)
             return True
         if model_field.one_to_many or model_field.many_to_many:
-            field_store = self._optimize_gql_selections(
-                self._get_type(field_def),
-                selection,
-                # parent_type,
-            )
-
             if isinstance(model_field, ManyToOneRel):
                 field_store.only(model_field.field.name)
 
             related_queryset = model_field.related_model.objects.all()
             store.prefetch_related(name, field_store, related_queryset)
-            return True
-        if not model_field.is_relation:
-            store.only(name)
             return True
         return False
 
