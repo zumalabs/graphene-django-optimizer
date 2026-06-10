@@ -8,7 +8,7 @@ from graphene import InputObjectType
 from graphene.types.definitions import GrapheneObjectType
 from graphene.types.generic import GenericScalar
 from graphene.types.resolver import default_resolver
-from graphene.utils.str_converters import to_camel_case
+from graphene.utils.str_converters import to_camel_case, to_snake_case
 from graphene_django import DjangoObjectType
 from graphene_django.registry import get_global_registry
 from graphql import GraphQLResolveInfo, GraphQLSchema
@@ -210,7 +210,7 @@ class QueryOptimizer(object):
     def _optimize_field_by_name(self, store, model, selection, field_def):
         name = self._get_name_from_resolver(field_def.resolve)
         if not name:
-            return False
+            name = to_snake_case(selection.name.value)
 
         full_name = name
         # "split" here for deep model_field resolver hint if it's not partial
