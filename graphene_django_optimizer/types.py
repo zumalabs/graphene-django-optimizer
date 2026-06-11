@@ -9,6 +9,10 @@ class OptimizedDjangoObjectType(DjangoObjectType):
         abstract = True
 
     @classmethod
+    def should_bypass_fk_get_queryset(cls):
+        return cls.get_queryset.__func__ is OptimizedDjangoObjectType.get_queryset.__func__
+
+    @classmethod
     def can_optimize_resolver(cls, resolver_info):
         return (
             isinstance(resolver_info.return_type, GrapheneObjectType)
