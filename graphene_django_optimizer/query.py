@@ -210,7 +210,10 @@ class QueryOptimizer(object):
     def _optimize_field_by_name(self, store, model, selection, field_def):
         name = self._get_name_from_resolver(field_def.resolve)
         if not name:
-            name = to_snake_case(selection.name.value)
+            if self._is_graphene_django_model_field_resolver(field_def.resolve):
+                name = to_snake_case(selection.name.value)
+            else:
+                return False
 
         full_name = name
         # "split" here for deep model_field resolver hint if it's not partial
@@ -342,6 +345,12 @@ class QueryOptimizer(object):
             if self._is_resolver_for_id_field(resolver_fn):
                 return "id"
             return resolver_fn
+
+    def _is_graphene_django_model_field_resolver(self, resolver):
+        return (
+            getattr(resolver, "__module__", None) == "graphene_django.converter"
+            and getattr(resolver, "__name__", None) == "custom_resolver"
+        )
 
     def _is_resolver_for_id_field(self, resolver):
         resolve_id = DjangoObjectType.resolve_id
